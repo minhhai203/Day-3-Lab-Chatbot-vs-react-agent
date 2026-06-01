@@ -9,6 +9,13 @@ def test_check_slots_supports_multiple_course_names():
     assert all(course["availability_status"] == "available" for course in result["courses"])
 
 
+def test_check_slots_supports_natural_language_query():
+    result = check_slots("Tôi muốn đăng ký môn AI và Data Science, kiểm tra còn chỗ không?")
+
+    assert result["ok"] is True
+    assert [course["course_code"] for course in result["courses"]] == ["AI3010", "DATA3020"]
+
+
 def test_get_tuition_calculates_total_for_multiple_courses():
     result = get_tuition(["AI3010", "DATA3020"], student_id="2A202600713")
 
