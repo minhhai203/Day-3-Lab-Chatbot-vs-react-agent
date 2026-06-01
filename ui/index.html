@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CoursePilot Chat</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Prompt suggestions">
+        <div class="brand">
+          <p class="eyebrow">VinUni Lab 3</p>
+          <h1>CoursePilot</h1>
+        </div>
+
+        <div class="mode-card" aria-label="Assistant mode">
+          <p class="eyebrow">Version</p>
+          <div class="mode-tabs" role="tablist" aria-label="Assistant version">
+            <button class="mode-tab active" type="button" data-mode="react">ReAct</button>
+            <button class="mode-tab" type="button" data-mode="baseline">Baseline</button>
+          </div>
+        </div>
+
+        <div class="prompt-list-wrap">
+          <p class="eyebrow">Try these</p>
+          <div class="scenario-list" id="scenarioList"></div>
+        </div>
+      </aside>
+
+      <main class="chat-shell" aria-label="Course registration chat">
+        <header class="chat-header">
+          <div>
+            <p class="eyebrow">Student Course Registration Assistant</p>
+            <h2>Chat</h2>
+          </div>
+          <button class="ghost-button" id="resetDemo" type="button">Clear chat</button>
+        </header>
+
+        <section class="conversation" id="conversation" aria-live="polite"></section>
+
+        <form class="composer" id="composer">
+          <input
+            id="userInput"
+            name="userInput"
+            autocomplete="off"
+            value="Tôi muốn đăng ký môn AI và Data Science, kiểm tra còn chỗ không và học phí tổng cộng?"
+            aria-label="Message"
+          />
+          <button type="submit">Send</button>
+        </form>
+      </main>
+    </div>
+
+    <template id="messageTemplate">
+      <article class="chat-turn">
+        <div class="bubble user-bubble"></div>
+        <div class="assistant-row">
+          <div class="assistant-avatar">CP</div>
+          <div class="assistant-stack">
+            <div class="assistant-meta">
+              <span class="assistant-name">CoursePilot</span>
+              <span class="assistant-mode"></span>
+            </div>
+            <div class="bubble assistant-bubble"></div>
+            <details class="trace-box">
+              <summary>Show agent steps</summary>
+              <div class="trace-content"></div>
+            </details>
+          </div>
+        </div>
+      </article>
+    </template>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -15,7 +15,15 @@ cp .env.example .env
 pip install -r requirements.txt
 ```
 
-### 3. Directory Structure
+### 3. Run UI + API
+```bash
+python -m uvicorn src.api.server:app --reload --port 8000
+```
+
+Open http://localhost:8000. The UI calls the FastAPI `/chat` endpoint, which
+routes `baseline` mode to the chatbot and `react` mode to the ReAct agent.
+
+### 4. Directory Structure
 - `src/tools/`: Extension point for your custom tools.
 
 ## 🏠 Running with Local Models (CPU)

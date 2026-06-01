@@ -63,6 +63,8 @@ class UniversityRegistrationChatbot:
         self.llm = llm or GeminiProvider(model_name=model_name, api_key=api_key)
         self.history: List[Dict[str, str]] = []
         self.default_student_id = default_student_id
+        self.last_prompt = ""
+        self.last_tool_context: Dict[str, Any] = {}
 
     def _build_tool_context(self, user_message: str) -> Dict[str, Any]:
         """
@@ -94,6 +96,7 @@ class UniversityRegistrationChatbot:
             lines.append(f"{role}: {turn['content']}")
         lines.append(f"Student: {user_message}")
         tool_context = self._build_tool_context(user_message)
+        self.last_tool_context = tool_context
         lines.append("TOOL CONTEXT:")
         lines.append(json.dumps(tool_context, ensure_ascii=False, indent=2))
         lines.append("Advisor:")
@@ -101,6 +104,7 @@ class UniversityRegistrationChatbot:
 
     def chat(self, user_message: str) -> str:
         prompt = self._build_prompt(user_message)
+        self.last_prompt = prompt
         result = self.llm.generate(prompt, system_prompt=SYSTEM_PROMPT)
         response = result["content"].strip()
 

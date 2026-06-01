@@ -17,6 +17,7 @@ class ReActAgent:
         self.tools = tools
         self.max_steps = max_steps
         self.history = []
+        self.latest_trace: List[Dict[str, Any]] = []
 
     def get_system_prompt(self) -> str:
         """
@@ -56,6 +57,16 @@ Rules:
         logger.log_event("AGENT_START", {"input": user_input, "model": self.llm.model_name})
 
         current_prompt = f"Question: {user_input}"
+        self.latest_trace = [
+            {
+                "type": "system_prompt",
+                "content": self.get_system_prompt().strip(),
+            },
+            {
+                "type": "user_prompt",
+                "content": current_prompt,
+            },
+        ]
         steps = 0
 
         while steps < self.max_steps:
@@ -81,6 +92,15 @@ Rules:
 
             final_answer = self._parse_final_answer(content)
             if final_answer:
+                self.latest_trace.append(
+                    {
+                        "type": "final",
+                        "step": steps + 1,
+                        "llm_output": content,
+                        "thought": self._parse_thought(content),
+                        "final_answer": final_answer,
+                    }
+                )
                 logger.log_event("AGENT_END", {"steps": steps + 1, "status": "final_answer"})
                 return final_answer
 
@@ -98,14 +118,45 @@ Rules:
                 tool_name, args = action
                 observation = self._execute_tool(tool_name, args)
 
+            self.latest_trace.append(
+                {
+                    "type": "step",
+                    "step": steps + 1,
+                    "llm_output": content,
+                    "thought": self._parse_thought(content),
+                    "action": (
+                        {"tool": action[0], "args": action[1]}
+                        if action is not None
+                        else None
+                    ),
+                    "observation": observation,
+                }
+            )
             current_prompt = f"{current_prompt}\n{content}\nObservation: {observation}"
             steps += 1
 
         logger.log_event("AGENT_END", {"steps": steps, "status": "max_steps_exceeded"})
+        self.latest_trace.append(
+            {
+                "type": "final",
+                "step": steps,
+                "final_answer": "I could not finish the registration task within the allowed reasoning steps.",
+            }
+        )
         return "I could not finish the registration task within the allowed reasoning steps."
 
     def _parse_final_answer(self, text: str) -> Optional[str]:
         match = re.search(r"Final Answer\s*:\s*(.+)", text, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            return None
+        return match.group(1).strip()
+
+    def _parse_thought(self, text: str) -> Optional[str]:
+        match = re.search(
+            r"Thought\s*:\s*(.*?)(?:\nAction\s*:|\nFinal Answer\s*:|$)",
+            text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
         if not match:
             return None
         return match.group(1).strip()
