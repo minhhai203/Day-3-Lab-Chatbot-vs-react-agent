@@ -176,16 +176,5 @@ Final Answer: The first attempt failed because the agent hallucinated search_cou
 - **Monitoring**: Logs should be aggregated to track success rate, error type, token usage, latency, and tool-call frequency.
 - **Scaling**: For production, the mock JSON should be replaced by real SIS APIs, and the workflow can be moved to LangGraph for more explicit state control.
 
----
 
-## 7. Final Deliverable Checklist
-
-- [x] Same use case for chatbot and agent.
-- [x] Chatbot baseline for registration advising.
-- [x] ReAct agent upgraded from the same use case.
-- [x] At least 1-2 tools; final design includes 5 registration tools.
-- [x] 5 test cases for comparison.
-- [x] 1 successful trace and 1 failure trace for debugging.
-- [x] 1 flowchart showing where the agent adds value.
-- [x] Bonus fallback/human escalation path.
 
