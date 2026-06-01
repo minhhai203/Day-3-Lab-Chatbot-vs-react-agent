@@ -9,18 +9,15 @@ from src.core.local_provider import LocalProvider
 
 def test_local_phi3():
     load_dotenv()
-    model_path = os.getenv("LOCAL_MODEL_PATH", "./models/Phi-3-mini-4k-instruct-q4.gguf")
+    model_name = os.getenv("OLLAMA_MODEL", "phi3:latest")
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
     
-    print(f"--- Testing Local Provider with Phi-3 ---")
-    print(f"Model Path: {model_path}")
-    
-    if not os.path.exists(model_path):
-        print(f"❌ Error: Model file not found at {model_path}")
-        print("Please download it from Hugging Face and place it in the models/ folder.")
-        return
+    print("--- Testing Local Provider with Ollama ---")
+    print(f"Model: {model_name}")
+    print(f"Base URL: {base_url}")
 
     try:
-        provider = LocalProvider(model_path=model_path)
+        provider = LocalProvider(model_name=model_name, base_url=base_url)
         
         prompt = "Explain what an AI Agent is in one sentence."
         print(f"\nUser: {prompt}")
