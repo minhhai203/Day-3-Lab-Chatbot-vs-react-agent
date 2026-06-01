@@ -1,0 +1,271 @@
+import inspect
+import json
+import re
+from typing import Any, Dict, List, Optional, Tuple
+
+from src.core.llm_provider import LLMProvider
+from src.telemetry.logger import logger
+from src.telemetry.metrics import tracker
+
+
+class ReActAgentV2:
+    """
+    Improved ReAct agent for comparison against V1.
+
+    V2 keeps the same public interface but adds stronger prompt constraints,
+    richer traces for UI/reporting, and more helpful parser/tool observations.
+    """
+
+    version = "v2"
+
+    def __init__(self, llm: LLMProvider, tools: List[Dict[str, Any]], max_steps: int = 5):
+        self.llm = llm
+        self.tools = tools
+        self.max_steps = max_steps
+        self.history: List[Dict[str, Any]] = []
+        self.latest_trace: List[Dict[str, Any]] = []
+
+    def get_system_prompt(self) -> str:
+        tool_descriptions = "\n".join(
+            [f"- {tool['name']}: {tool['description']}" for tool in self.tools]
+        )
+        tool_names = ", ".join(self._tool_names())
+        return f"""
+You are a VinUniversity course registration assistant.
+You may use ONLY these tool names: {tool_names}.
+
+Available tools:
+{tool_descriptions}
+
+Use this format exactly:
+Thought: your short reasoning for the next step.
+Action: tool_name({{"argument_name": "argument_value"}})
+Observation: result of the tool call.
+... repeat Thought/Action/Observation only when needed.
+Final Answer: concise answer for the student.
+
+Rules:
+- Use raw JSON inside Action parentheses.
+- Never invent tool names. If an observation says TOOL_NOT_FOUND, choose from: {tool_names}.
+- Call tools before answering questions about slots, tuition, or registration data.
+- If a tool returns errors, explain the issue and suggest a safe fallback.
+- Stop immediately once you have enough evidence for the Final Answer.
+"""
+
+    def run(self, user_input: str) -> str:
+        logger.log_event(
+            "AGENT_START",
+            {"input": user_input, "model": self.llm.model_name, "agent_version": self.version},
+        )
+
+        current_prompt = f"Question: {user_input}"
+        self.latest_trace = [
+            {
+                "type": "system_prompt",
+                "content": self.get_system_prompt().strip(),
+            },
+            {
+                "type": "user_prompt",
+                "content": current_prompt,
+            },
+        ]
+        steps = 0
+
+        while steps < self.max_steps:
+            result = self.llm.generate(current_prompt, system_prompt=self.get_system_prompt())
+            content = result.get("content", "")
+            self.history.append({"role": "assistant", "content": content})
+
+            logger.log_event(
+                "AGENT_STEP",
+                {
+                    "step": steps + 1,
+                    "llm_output": content,
+                    "latency_ms": result.get("latency_ms", 0),
+                    "agent_version": self.version,
+                },
+            )
+            if "usage" in result:
+                tracker.track_request(
+                    provider=result.get("provider", "unknown"),
+                    model=self.llm.model_name,
+                    usage=result.get("usage", {}),
+                    latency_ms=result.get("latency_ms", 0),
+                )
+
+            final_answer = self._parse_final_answer(content)
+            if final_answer:
+                self.latest_trace.append(
+                    {
+                        "type": "final",
+                        "step": steps + 1,
+                        "llm_output": content,
+                        "thought": self._parse_thought(content),
+                        "final_answer": final_answer,
+                    }
+                )
+                logger.log_event(
+                    "AGENT_END",
+                    {"steps": steps + 1, "status": "final_answer", "agent_version": self.version},
+                )
+                return final_answer
+
+            action = self._parse_action(content)
+            if action is None:
+                observation = json.dumps(
+                    {
+                        "ok": False,
+                        "error_code": "PARSER_ERROR",
+                        "message": "No valid Action found. Use Action: tool_name({\"arg\": \"value\"}).",
+                        "available_tools": self._tool_names(),
+                    }
+                )
+                logger.log_event(
+                    "AGENT_PARSE_ERROR",
+                    {"step": steps + 1, "output": content, "agent_version": self.version},
+                )
+            else:
+                tool_name, args = action
+                observation = self._execute_tool(tool_name, args)
+
+            self.latest_trace.append(
+                {
+                    "type": "step",
+                    "step": steps + 1,
+                    "llm_output": content,
+                    "thought": self._parse_thought(content),
+                    "action": (
+                        {"tool": action[0], "args": action[1]}
+                        if action is not None
+                        else None
+                    ),
+                    "observation": observation,
+                }
+            )
+            current_prompt = f"{current_prompt}\n{content}\nObservation: {observation}"
+            steps += 1
+
+        final_answer = "I could not finish the registration task within the allowed reasoning steps."
+        self.latest_trace.append(
+            {
+                "type": "final",
+                "step": steps,
+                "final_answer": final_answer,
+            }
+        )
+        logger.log_event(
+            "AGENT_END",
+            {"steps": steps, "status": "max_steps_exceeded", "agent_version": self.version},
+        )
+        return final_answer
+
+    def _parse_final_answer(self, text: str) -> Optional[str]:
+        match = re.search(r"Final Answer\s*:\s*(.+)", text, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            return None
+        return match.group(1).strip()
+
+    def _parse_thought(self, text: str) -> Optional[str]:
+        match = re.search(
+            r"Thought\s*:\s*(.*?)(?:\nAction\s*:|\nFinal Answer\s*:|$)",
+            text,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if not match:
+            return None
+        return match.group(1).strip()
+
+    def _parse_action(self, text: str) -> Optional[Tuple[str, Dict[str, Any]]]:
+        match = re.search(
+            r"Action\s*:\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\((.*)\)\s*$",
+            text.strip(),
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if not match:
+            return None
+
+        tool_name = match.group(1)
+        raw_args = match.group(2).strip()
+        if not raw_args:
+            return tool_name, {}
+
+        try:
+            parsed_args = json.loads(raw_args)
+        except json.JSONDecodeError:
+            parsed_args = self._parse_key_value_args(raw_args)
+
+        if not isinstance(parsed_args, dict):
+            parsed_args = {"value": parsed_args}
+
+        return tool_name, parsed_args
+
+    def _parse_key_value_args(self, raw_args: str) -> Dict[str, Any]:
+        args: Dict[str, Any] = {}
+        for item in raw_args.split(","):
+            if "=" not in item:
+                continue
+            key, value = item.split("=", 1)
+            args[key.strip()] = value.strip().strip("\"'")
+        return args
+
+    def _execute_tool(self, tool_name: str, args: Dict[str, Any]) -> str:
+        for tool in self.tools:
+            if tool["name"] == tool_name:
+                try:
+                    function = tool["function"]
+                    signature = inspect.signature(function)
+                    accepted_args = {
+                        key: value
+                        for key, value in args.items()
+                        if key in signature.parameters
+                    }
+                    dropped_args = sorted(set(args) - set(accepted_args))
+                    logger.log_event(
+                        "TOOL_CALL",
+                        {
+                            "tool": tool_name,
+                            "args": accepted_args,
+                            "dropped_args": dropped_args,
+                            "agent_version": self.version,
+                        },
+                    )
+                    result = function(**accepted_args)
+                    logger.log_event(
+                        "TOOL_RESULT",
+                        {"tool": tool_name, "result": result, "agent_version": self.version},
+                    )
+                    return json.dumps(
+                        {
+                            "tool_call_ok": True,
+                            "tool": tool_name,
+                            "dropped_args": dropped_args,
+                            "result": result,
+                        },
+                        ensure_ascii=False,
+                    )
+                except Exception as exc:
+                    error = {
+                        "ok": False,
+                        "error_code": "TOOL_EXECUTION_ERROR",
+                        "tool": tool_name,
+                        "message": str(exc),
+                        "available_tools": self._tool_names(),
+                    }
+                    logger.log_event("TOOL_ERROR", {**error, "agent_version": self.version})
+                    return json.dumps(error, ensure_ascii=False)
+
+        error = {
+            "ok": False,
+            "error_code": "TOOL_NOT_FOUND",
+            "tool": tool_name,
+            "message": f"Tool {tool_name} not found.",
+            "available_tools": self._tool_names(),
+        }
+        logger.log_event("TOOL_ERROR", {**error, "agent_version": self.version})
+        return json.dumps(error, ensure_ascii=False)
+
+    def _tool_names(self) -> List[str]:
+        return [tool["name"] for tool in self.tools]
+
+
+ReActAgent = ReActAgentV2

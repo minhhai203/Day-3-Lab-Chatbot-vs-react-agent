@@ -40,7 +40,8 @@ LOCAL_MODEL_PATH=./models/Phi-3-mini-4k-instruct-q4.gguf
 ## 🎯 Lab Objectives
 
 1.  **Baseline Chatbot**: Observe the limitations of a standard LLM when faced with multi-step reasoning.
-2.  **ReAct Loop**: Implement the `Thought-Action-Observation` cycle in `src/agent/agent.py`.
+2.  **ReAct Loop**: Compare `src/agent/agent_v1.py` and `src/agent/agent_v2.py`.
+    `src/agent/agent.py` keeps the default `ReActAgent` alias pointed at V2.
 3.  **Provider Switching**: Swap between OpenAI and Gemini seamlessly using the `LLMProvider` interface.
 4.  **Failure Analysis**: Use the structured logs in `logs/` to identify why the agent fails (hallucinations, parsing errors).
 5.  **Grading & Bonus**: Follow the [SCORING.md](file:///Users/tindt/personal/ai-thuc-chien/day03-lab-agent/SCORING.md) to maximize your points and explore bonus metrics.
@@ -50,6 +51,7 @@ The code is designed as a **Production Prototype**. It includes:
 - **Telemetry**: Every action is logged in JSON format for later analysis.
 - **Robust Provider Pattern**: Easily extendable to any LLM API.
 - **Clean Skeletons**: Focus on the logic that matters—the agent's reasoning process.
+- **Agent Versioning**: V1 preserves the first working ReAct loop. V2 adds stricter tool-use rules, structured traces, and better recovery hints for parser/tool failures.
 
 ---
 

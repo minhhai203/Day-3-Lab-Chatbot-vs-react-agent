@@ -1,6 +1,8 @@
 from typing import Any, Dict, List, Optional
 
 from src.agent.agent import ReActAgent
+from src.agent.agent_v1 import ReActAgentV1
+from src.agent.agent_v2 import ReActAgentV2
 from src.core.llm_provider import LLMProvider
 from src.tools.course_registration_tools import get_course_registration_tools
 
@@ -97,3 +99,47 @@ def test_react_agent_handles_unknown_tool_as_failure_trace():
     assert "9,100,000" in answer, "Agent should have called get_tuition and returned tuition cost"
     assert "available" in answer.lower(), "Agent should have called check_slots and returned availability"
     assert llm.calls == 4, f"Agent should have called LLM 4 times (hallucinate, correct, get_tuition, final), got {llm.calls}"
+
+
+def test_default_react_agent_points_to_v2():
+    assert ReActAgent is ReActAgentV2
+
+
+def test_agent_v1_is_kept_for_comparison():
+    llm = ScriptedLLM(
+        [
+            'Thought: I need to check seats first.\n'
+            'Action: check_slots({"course_query": "AI"})',
+            "Thought: I have the observation.\n"
+            "Final Answer: AI has available options.",
+        ]
+    )
+    agent = ReActAgentV1(llm=llm, tools=get_course_registration_tools(), max_steps=3)
+
+    answer = agent.run("Check AI slots")
+
+    assert "available" in answer.lower()
+    assert getattr(agent, "version") == "v1"
+
+
+def test_agent_v2_records_trace_and_available_tools_on_unknown_tool():
+    llm = ScriptedLLM(
+        [
+            'Thought: I will call the wrong tool.\n'
+            'Action: search_course({"query": "AI"})',
+            "Thought: I saw the available tools and can stop.\n"
+            "Final Answer: I should use check_slots instead.",
+        ]
+    )
+    agent = ReActAgentV2(llm=llm, tools=get_course_registration_tools(), max_steps=3)
+
+    answer = agent.run("Check AI slots")
+
+    assert "check_slots" in answer
+    step_observations = [
+        item["observation"]
+        for item in agent.latest_trace
+        if item.get("type") == "step"
+    ]
+    assert any("TOOL_NOT_FOUND" in observation for observation in step_observations)
+    assert any("available_tools" in observation for observation in step_observations)
